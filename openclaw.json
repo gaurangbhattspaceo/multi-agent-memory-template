@@ -1,0 +1,98 @@
+{
+  "meta": {
+    "lastTouchedVersion": "2026.1.29"
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "/app/workspace-lead",
+      "compaction": {
+        "mode": "safeguard",
+        "reserveTokensFloor": 20000,
+        "memoryFlush": {
+          "enabled": true,
+          "softThresholdTokens": 40000,
+          "systemPrompt": "Session nearing compaction. Store durable memories now.",
+          "prompt": "Write any lasting notes to memory/YYYY-MM-DD.md. Focus on: key decisions made, current project status, tasks completed, lessons learned, and active blockers. Reply with NO_REPLY if nothing to store."
+        }
+      },
+      "contextPruning": {
+        "mode": "cache-ttl",
+        "ttl": "6h",
+        "keepLastAssistants": 3
+      },
+      "memorySearch": {
+        "query": {
+          "hybrid": {
+            "enabled": true,
+            "vectorWeight": 0.7,
+            "textWeight": 0.3
+          }
+        },
+        "experimental": {
+          "sessionMemory": true
+        },
+        "sources": ["memory", "sessions"]
+      },
+      "maxConcurrent": 6,
+      "subagents": {
+        "maxConcurrent": 10
+      }
+    },
+    "list": [
+      {
+        "id": "lead-agent",
+        "default": true,
+        "workspace": "/app/workspace-lead",
+        "model": "anthropic/claude-opus-4-6",
+        "name": "Lead Agent",
+        "subagents": {
+          "allowAgents": ["engineer-agent", "ops-agent"]
+        }
+      },
+      {
+        "id": "engineer-agent",
+        "workspace": "/app/workspace-engineer",
+        "model": "anthropic/claude-sonnet-4-6",
+        "name": "Engineer Agent"
+      },
+      {
+        "id": "ops-agent",
+        "workspace": "/app/workspace-ops",
+        "model": "anthropic/claude-sonnet-4-6",
+        "name": "Ops Agent"
+      }
+    ]
+  },
+  "tools": {
+    "exec": {
+      "host": "gateway",
+      "security": "full",
+      "ask": "off"
+    },
+    "agentToAgent": {
+      "enabled": true,
+      "allow": ["lead-agent", "engineer-agent", "ops-agent"]
+    }
+  },
+  "channels": {
+    "discord": {
+      "enabled": true,
+      "token": "${DISCORD_BOT_TOKEN}",
+      "groupPolicy": "open",
+      "guilds": {
+        "${DISCORD_GUILD_ID}": {
+          "requireMention": false
+        }
+      }
+    }
+  },
+  "gateway": {
+    "port": 18790,
+    "mode": "local",
+    "bind": "loopback",
+    "auth": {
+      "mode": "token",
+      "token": "${GATEWAY_AUTH_TOKEN}"
+    }
+  }
+}
