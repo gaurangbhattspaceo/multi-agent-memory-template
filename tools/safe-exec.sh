@@ -1,88 +1,204 @@
 #!/bin/bash
-# safe-exec.sh — Tool wrapper with auto-learning
+# Safe execution wrapper for multi-agent dev team
+# ONLY allows pre-approved commands. Everything else is blocked.
+# Agents should use: exec /app/tools/safe-exec.sh <command> [args...]
 #
-# All agent tool calls go through this wrapper. It provides:
-# 1. Command allowlisting (agents can only run approved commands)
-# 2. Auto-error capture (failed tools get logged to Knowledge Vault)
-# 3. Consistent interface for all operations
-#
-# Usage: safe-exec.sh <command> [args...]
+# Auto-learning: On tool failures (non-zero exit), errors are automatically
+# logged to the Knowledge Vault for recurrence tracking and promotion.
 
-set -euo pipefail
+set -uo pipefail
 
 COMMAND="${1:-}"
 shift 2>/dev/null || true
 
-# Detect which agent is running (from workspace path)
-AGENT_ID="${OPENCLAW_AGENT_ID:-unknown}"
-
-# ─── Auto-Learning Wrapper ───────────────────────────────────────────
-# When a tool fails, automatically log the error to the Knowledge Vault.
-# This is the foundation of Layer 4 (Self-Learning).
+# --- Auto-learning wrapper ---
+# Runs a command and logs failures to the Knowledge Vault.
+# Preserves the original exit code so callers see the real error.
 run_and_learn() {
   local TOOL_NAME="$1"
   shift
 
-  # Capture output
-  local OUTPUT_FILE="/tmp/safe-exec-$$-output"
-  local EXIT_CODE=0
+  # Run the command, capturing exit code (disable errexit temporarily)
+  set +e
+  "$@"
+  local EXIT_CODE=$?
+  set -e
 
-  "$@" > "$OUTPUT_FILE" 2>&1 || EXIT_CODE=$?
-  cat "$OUTPUT_FILE"
-
-  # If it failed, log to knowledge vault (skip recursion for knowledge commands)
-  if [ $EXIT_CODE -ne 0 ] && [ "$COMMAND" != "knowledge" ] && [ "$COMMAND" != "post" ]; then
-    local ERROR_CONTEXT
-    ERROR_CONTEXT=$(tail -5 "$OUTPUT_FILE" 2>/dev/null || echo "no output")
+  # On failure, auto-log to Knowledge Vault (skip if it's the knowledge tool itself)
+  if [ $EXIT_CODE -ne 0 ]; then
+    local AGENT_ID="${OPENCLAW_AGENT_ID:-unknown}"
+    local ERROR_CTX="$TOOL_NAME failed (exit $EXIT_CODE)"
     node /app/tools/knowledge-vault.js log-error \
-      "$AGENT_ID" "$TOOL_NAME" "$EXIT_CODE" "$ERROR_CONTEXT" 2>/dev/null || true
+      "$AGENT_ID" \
+      "tool-error" \
+      "$TOOL_NAME" \
+      "$ERROR_CTX" 2>/dev/null || true
   fi
 
-  rm -f "$OUTPUT_FILE"
-  return $EXIT_CODE
+  exit $EXIT_CODE
 }
 
-# ─── Command Router ──────────────────────────────────────────────────
 case "$COMMAND" in
+  # --- Commands WITHOUT auto-learning (messaging, knowledge, fetch) ---
 
-  # Task management
-  task)
-    run_and_learn "task-$1" node /app/tools/task-registry.js "$@"
+  # Discord channel posting
+  post)
+    exec node /app/identity/post.js "$@"
     ;;
 
-  # Knowledge vault (Layer 3 + 4)
+  # Discord file upload (screenshots)
+  post-file)
+    exec node /app/identity/post-file.js "$@"
+    ;;
+
+  # Microsoft Teams posting (Adaptive Card)
+  post-teams)
+    exec node /app/identity/post-teams.js "$@"
+    ;;
+
+  # Knowledge vault (skip to avoid recursion)
   knowledge)
-    node /app/tools/knowledge-vault.js "$@"
+    exec node /app/tools/knowledge-vault.js "$@"
     ;;
 
-  # Git operations
+  # Web fetch (read-only, HTTPS only — errors are expected)
+  fetch)
+    URL="${1:-}"
+    if [[ -z "$URL" ]]; then
+      echo "ERROR: URL required"
+      exit 1
+    fi
+    if [[ ! "$URL" =~ ^https:// ]]; then
+      echo "ERROR: Only HTTPS URLs allowed"
+      exit 1
+    fi
+    if [[ "$URL" =~ (localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.) ]]; then
+      echo "ERROR: Internal URLs blocked"
+      exit 1
+    fi
+    exec node -e "
+      const https = require('https');
+      const url = process.argv[1];
+      https.get(url, {headers: {'User-Agent': 'OpenClaw-Agent/1.0'}}, res => {
+        let d = '';
+        res.on('data', c => { d += c; if (d.length > 100000) { res.destroy(); } });
+        res.on('end', () => console.log(d.slice(0, 100000)));
+      }).on('error', e => { console.error('Fetch error: ' + e.message); process.exit(1); });
+    " "$URL"
+    ;;
+
+  # --- Commands WITH auto-learning ---
+
+  # Git API operations (MR creation, reviews, issues)
+  git-api)
+    run_and_learn "git-api" node /app/tools/git-integration.js "$@"
+    ;;
+
+  # Git operations (branch, commit, push — scoped to project dirs only)
   git)
-    GIT_CMD="${1:-}"
-    shift 2>/dev/null || true
-    case "$GIT_CMD" in
-      status|log|diff|branch|checkout|pull|add|commit|push|merge)
-        run_and_learn "git-$GIT_CMD" git "$GIT_CMD" "$@"
+    SUBCOMMAND="${1:-}"
+    PROJECT_DIR="${2:-}"
+
+    # Validate project directory (customize these for your repos)
+    # [FILL IN: Add your allowed project directories here]
+    case "$PROJECT_DIR" in
+      ${REPO_1_PATH:-/app/project}|\
+      ${REPO_1_PATH:-/app/project}-worktree-*|\
+      ${REPO_2_PATH:-/app/project2}|\
+      ${REPO_2_PATH:-/app/project2}-worktree-*)
+        ;; # allowed
+      *)
+        echo "ERROR: Git operations only allowed in approved project directories"
+        echo "Set REPO_1_PATH and REPO_2_PATH in your .env file"
+        exit 1
+        ;;
+    esac
+
+    # Allowed git subcommands
+    case "$SUBCOMMAND" in
+      status|log|diff|branch|checkout|add|commit|push|pull|fetch|stash|merge|rebase)
+        shift 2  # remove subcommand and project dir
+        run_and_learn "git-$SUBCOMMAND" git -C "$PROJECT_DIR" "$SUBCOMMAND" "$@"
         ;;
       *)
-        echo "ERROR: Git command '$GIT_CMD' not allowed."
+        echo "ERROR: Git subcommand '$SUBCOMMAND' not allowed."
+        echo "Allowed: status, log, diff, branch, checkout, add, commit, push, pull, fetch, stash, merge, rebase"
         exit 1
         ;;
     esac
     ;;
 
-  # Post messages (customize for your messaging platform)
-  post)
-    # Example: post <agent-id> <channel> "message"
-    echo "TODO: Implement messaging for your platform (Discord, Slack, etc.)"
-    echo "Agent: $1, Channel: $2, Message: $3"
+  # Task registry
+  task)
+    run_and_learn "task" node /app/tools/task-registry.js "$@"
     ;;
 
-  # Code graph (Layer 5 — codebase-memory-mcp)
+  # Code review
+  review)
+    run_and_learn "review" node /app/tools/code-review.js "$@"
+    ;;
+
+  # Definition of done validation
+  done)
+    run_and_learn "done" node /app/tools/validate-done.js "$@"
+    ;;
+
+  # Agent monitoring
+  monitor)
+    run_and_learn "monitor" node /app/tools/monitor-agents.js "$@"
+    ;;
+
+  # Smart retry
+  retry)
+    run_and_learn "retry" node /app/tools/retry-analyzer.js "$@"
+    ;;
+
+  # Smart babysitter
+  babysit)
+    run_and_learn "babysit" node /app/tools/babysitter.js "$@"
+    ;;
+
+  # Proactive scanner
+  scan)
+    run_and_learn "scan" node /app/tools/proactive-scan.js "$@"
+    ;;
+
+  # E2E testing (Playwright)
+  e2e)
+    run_and_learn "e2e" node /app/tools/e2e-runner.js "$@"
+    ;;
+
+  # Intake triage (auto-create tasks from E2E failures and health alerts)
+  intake)
+    run_and_learn "intake" node /app/tools/intake-triage.js "$@"
+    ;;
+
+  # Version management (release tracking, readiness checks)
+  version)
+    run_and_learn "version" node /app/tools/version-manager.js "$@"
+    ;;
+
+  # Git issue intake (poll git provider for open issues, create tasks)
+  git-intake)
+    run_and_learn "git-intake" node /app/tools/git-intake.js "$@"
+    ;;
+
+  # Documentation generator (scan codebase, screenshots, docs repo git)
+  docs-gen)
+    run_and_learn "docs-gen" node /app/tools/docs-gen.js "$@"
+    ;;
+
+  # Test execution (npm test, jest, vitest)
+  test)
+    run_and_learn "test" npm test "$@"
+    ;;
+
+  # Code graph (codebase-memory-mcp — AST-based code analysis)
   graph)
     GRAPH_CMD="${1:-}"
     shift 2>/dev/null || true
     case "$GRAPH_CMD" in
-      search_graph|trace_call_path|detect_changes|get_architecture|get_code_snippet|query_graph|get_graph_schema|search_code|list_projects|index_repository)
+      search_graph|trace_call_path|detect_changes|get_architecture|get_code_snippet|query_graph|get_graph_schema|search_code|list_projects|index_repository|manage_adr)
         run_and_learn "graph-$GRAPH_CMD" /usr/local/bin/codebase-memory-mcp cli "$GRAPH_CMD" "$@"
         ;;
       *)
@@ -95,7 +211,7 @@ case "$COMMAND" in
 
   *)
     echo "ERROR: Command '$COMMAND' not allowed."
-    echo "Allowed commands: task, knowledge, git, post, graph"
+    echo "Allowed commands: post, post-teams, post-file, git-api, git, test, fetch, task, review, done, monitor, retry, knowledge, babysit, scan, e2e, intake, version, git-intake, docs-gen, graph"
     exit 1
     ;;
 esac

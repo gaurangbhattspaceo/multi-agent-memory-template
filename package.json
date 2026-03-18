@@ -1,0 +1,17 @@
+{
+  "name": "multi-agent-memory-template",
+  "version": "2.0.0",
+  "description": "Multi-agent AI development team on OpenClaw (5 agents, 15 tools, 13 crons)",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "./start.sh",
+    "setup-channels": "node identity/create-channels.js",
+    "setup-webhooks": "node identity/setup-webhooks.js"
+  },
+  "dependencies": {
+    "openclaw": "latest"
+  }
+}

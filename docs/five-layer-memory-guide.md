@@ -58,11 +58,11 @@ Give each agent a **persistent identity file** that gets loaded at the start of 
 
 ```
 your-project/
-├── workspace-lead/
+├── workspace-lead-agent/
 │   └── SOUL.md          # Lead agent's identity
-├── workspace-engineer/
+├── workspace-engineer-agent/
 │   └── SOUL.md          # Engineer agent's identity
-└── workspace-ops/
+└── workspace-ops-monitor/
     └── SOUL.md           # Ops agent's identity
 ```
 
@@ -109,13 +109,13 @@ In `openclaw.json`, point each agent to its workspace:
     "list": [
       {
         "id": "lead-agent",
-        "workspace": "/app/workspace-lead",
+        "workspace": "/app/workspace-lead-agent",
         "model": "anthropic/claude-opus-4-6",
         "name": "Lead Agent"
       },
       {
         "id": "engineer-agent",
-        "workspace": "/app/workspace-engineer",
+        "workspace": "/app/workspace-engineer-agent",
         "model": "anthropic/claude-sonnet-4-6",
         "name": "Engineer Agent"
       }
@@ -540,9 +540,9 @@ We've open-sourced our full configuration as a starter template:
 multi-agent-memory-template/
 ├── README.md                          # Quick start guide
 ├── openclaw.json                      # Full config with all 5 layers
-├── workspace-lead/
+├── workspace-lead-agent/
 │   └── SOUL.md                        # Lead agent template
-├── workspace-engineer/
+├── workspace-engineer-agent/
 │   └── SOUL.md                        # Engineer agent template
 ├── tools/
 │   ├── knowledge-vault.js             # Self-learning system

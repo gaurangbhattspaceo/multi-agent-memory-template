@@ -1,0 +1,28 @@
+# Environment
+.env
+.env.local
+.env.production
+
+# Data / Persistent volume
+/data/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# OpenClaw
+.openclaw/
+credentials/
+
+# Identity (contains webhook URLs with tokens)
+identity/webhooks.json
+
+# Screenshots
+*.png
+*.jpg
+
+# Logs
+*.log

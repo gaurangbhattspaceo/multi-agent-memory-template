@@ -2,9 +2,30 @@
   "meta": {
     "lastTouchedVersion": "2026.1.29"
   },
+  "auth": {
+    "profiles": {
+      "anthropic:default": {
+        "provider": "anthropic",
+        "mode": "token"
+      }
+    }
+  },
+  "models": {
+    "providers": {
+      "budget-model": {
+        "baseUrl": "${BUDGET_MODEL_BASE_URL}",
+        "apiKey": "${BUDGET_MODEL_API_KEY}",
+        "api": "openai-completions",
+        "models": [
+          { "id": "${BUDGET_MODEL_ID}", "name": "Budget Model", "contextWindow": 32768 }
+        ]
+      }
+    }
+  },
   "agents": {
     "defaults": {
-      "workspace": "/app/workspace-lead",
+      "workspace": "/app/workspace-lead-agent",
+      "identity": "/app/identity",
       "compaction": {
         "mode": "safeguard",
         "reserveTokensFloor": 20000,
@@ -42,27 +63,73 @@
       {
         "id": "lead-agent",
         "default": true,
-        "workspace": "/app/workspace-lead",
+        "workspace": "/app/workspace-lead-agent",
         "model": "anthropic/claude-opus-4-6",
         "name": "Lead Agent",
         "subagents": {
-          "allowAgents": ["engineer-agent", "ops-agent"]
+          "allowAgents": ["engineer-agent", "devops-agent"]
         }
       },
       {
         "id": "engineer-agent",
-        "workspace": "/app/workspace-engineer",
+        "workspace": "/app/workspace-engineer-agent",
         "model": "anthropic/claude-sonnet-4-6",
         "name": "Engineer Agent"
       },
       {
-        "id": "ops-agent",
-        "workspace": "/app/workspace-ops",
+        "id": "devops-agent",
+        "workspace": "/app/workspace-devops-agent",
         "model": "anthropic/claude-sonnet-4-6",
-        "name": "Ops Agent"
+        "name": "DevOps Agent"
+      },
+      {
+        "id": "ops-monitor",
+        "workspace": "/app/workspace-ops-monitor",
+        "model": "anthropic/claude-haiku-4-5-20251001",
+        "name": "Ops Monitor"
+      },
+      {
+        "id": "docs-agent",
+        "workspace": "/app/workspace-docs-agent",
+        "model": "anthropic/claude-sonnet-4-6",
+        "name": "Documentation Agent"
       }
     ]
   },
+  "bindings": [
+    {
+      "agentId": "lead-agent",
+      "match": { "channel": "discord", "peer": { "kind": "channel", "id": "${DISCORD_DEV_TASKS_CHANNEL_ID}" } }
+    },
+    {
+      "agentId": "lead-agent",
+      "match": { "channel": "discord", "peer": { "kind": "channel", "id": "${DISCORD_DEV_WORK_CHANNEL_ID}" } }
+    },
+    {
+      "agentId": "lead-agent",
+      "match": { "channel": "discord", "peer": { "kind": "channel", "id": "${DISCORD_DEV_REVIEWS_CHANNEL_ID}" } }
+    },
+    {
+      "agentId": "lead-agent",
+      "match": { "channel": "discord", "peer": { "kind": "channel", "id": "${DISCORD_DEV_ALERTS_CHANNEL_ID}" } }
+    },
+    {
+      "agentId": "engineer-agent",
+      "match": { "channel": "discord", "peer": { "kind": "channel", "id": "${DISCORD_DEV_WORK_CHANNEL_ID}" } }
+    },
+    {
+      "agentId": "devops-agent",
+      "match": { "channel": "discord", "peer": { "kind": "channel", "id": "${DISCORD_DEV_WORK_CHANNEL_ID}" } }
+    },
+    {
+      "agentId": "devops-agent",
+      "match": { "channel": "discord", "peer": { "kind": "channel", "id": "${DISCORD_DEV_ALERTS_CHANNEL_ID}" } }
+    },
+    {
+      "agentId": "docs-agent",
+      "match": { "channel": "discord", "peer": { "kind": "channel", "id": "${DISCORD_DEV_WORK_CHANNEL_ID}" } }
+    }
+  ],
   "tools": {
     "exec": {
       "host": "gateway",
@@ -71,8 +138,20 @@
     },
     "agentToAgent": {
       "enabled": true,
-      "allow": ["lead-agent", "engineer-agent", "ops-agent"]
+      "allow": ["lead-agent", "engineer-agent", "devops-agent", "ops-monitor", "docs-agent"]
+    },
+    "web": {
+      "search": {
+        "apiKey": "${WEB_SEARCH_API_KEY}"
+      }
     }
+  },
+  "messages": {
+    "ackReactionScope": "group-mentions"
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto"
   },
   "channels": {
     "discord": {
@@ -93,6 +172,13 @@
     "auth": {
       "mode": "token",
       "token": "${GATEWAY_AUTH_TOKEN}"
+    }
+  },
+  "plugins": {
+    "entries": {
+      "discord": {
+        "enabled": true
+      }
     }
   }
 }
